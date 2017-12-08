@@ -32,5 +32,5 @@ enum class ConvergeReason(val reason: String) {
 
 data class ConvergeResult(
   val orchestrations: List<OrchestrationRequest>,
-  val changeSummary: ChangeSummary = ChangeSummary()
+  val changeSummary: ChangeSummary
 )

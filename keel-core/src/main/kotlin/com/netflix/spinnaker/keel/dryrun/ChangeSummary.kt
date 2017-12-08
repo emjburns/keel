@@ -19,6 +19,7 @@ package com.netflix.spinnaker.keel.dryrun
 import com.netflix.spinnaker.keel.state.FieldState
 
 data class ChangeSummary(
+  val intentId: String,
   private val summary: MutableList<String> = mutableListOf()
 ) {
   var type: ChangeType = ChangeType.NO_CHANGE

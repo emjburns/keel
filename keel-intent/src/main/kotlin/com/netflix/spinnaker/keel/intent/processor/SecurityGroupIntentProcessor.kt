@@ -70,7 +70,7 @@ class SecurityGroupIntentProcessor
   override fun supports(intent: Intent<IntentSpec>) = intent is SecurityGroupIntent
 
   override fun converge(intent: SecurityGroupIntent): ConvergeResult {
-    val changeSummary = ChangeSummary()
+    val changeSummary = ChangeSummary(intent.id)
 
     log.info("Converging state for {}", value("intent", intent.id))
 

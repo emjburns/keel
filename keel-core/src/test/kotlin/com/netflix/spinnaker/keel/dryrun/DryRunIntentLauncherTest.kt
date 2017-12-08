@@ -51,7 +51,7 @@ object DryRunIntentLauncherTest {
 
   @Test
   fun `should output human friendly summary of operations`() {
-    val changeSummary = ChangeSummary()
+    val changeSummary = ChangeSummary("myIntentId")
     changeSummary.type = ChangeType.CREATE
     changeSummary.addMessage("Waits, coming right up")
 
