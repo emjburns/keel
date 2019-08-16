@@ -271,12 +271,12 @@ data class TaskRef(val value: String) {
   override fun toString(): String = value
 }
 
-data class Task(
-  val id: String,
-  val name: String
-)
-
 class TaskRefDeserializer : StdDeserializer<TaskRef>(TaskRef::class.java) {
   override fun deserialize(parser: JsonParser, context: DeserializationContext): TaskRef =
     TaskRef(parser.valueAsString)
 }
+
+data class Task(
+  val id: String,
+  val name: String
+)
