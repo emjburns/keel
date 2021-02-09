@@ -999,6 +999,7 @@ class SqlDeliveryConfigRepository(
     sqlRetry.withRetry(WRITE) {
       jooq.update(DELIVERY_CONFIG_LAST_CHECKED)
         .set(DELIVERY_CONFIG_LAST_CHECKED.AT, EPOCH.plusSeconds(1))
+        .set(DELIVERY_CONFIG_LAST_CHECKED.LEASED_AT, EPOCH.plusSeconds(1))
         .setNull(DELIVERY_CONFIG_LAST_CHECKED.LEASED_BY)
         .where(DELIVERY_CONFIG_LAST_CHECKED.DELIVERY_CONFIG_UID.eq(uid))
         .execute()
