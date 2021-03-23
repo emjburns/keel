@@ -1,15 +1,16 @@
 package com.netflix.spinnaker.keel.slack
 
 import com.netflix.spinnaker.keel.api.DeliveryConfig
-import com.netflix.spinnaker.keel.api.ResourceDiff
 import com.netflix.spinnaker.keel.api.artifacts.DeliveryArtifact
 import com.netflix.spinnaker.keel.api.artifacts.GitMetadata
 import com.netflix.spinnaker.keel.api.artifacts.PublishedArtifact
 import com.netflix.spinnaker.keel.api.constraints.ConstraintStatus
+import com.netflix.spinnaker.keel.constraints.SlackMessageDetail
 import com.netflix.spinnaker.keel.core.api.EnvironmentArtifactPin
 import com.netflix.spinnaker.keel.core.api.PinnedEnvironment
 import com.netflix.spinnaker.keel.core.api.UID
 import com.netflix.spinnaker.keel.lifecycle.LifecycleEventType
+import com.slack.api.model.Message
 import java.time.Instant
 
 abstract class SlackNotificationEvent(
@@ -83,6 +84,16 @@ data class SlackManualJudgmentNotification(
   val deliveryArtifact: DeliveryArtifact,
   val stateUid: UID?,
   override val application: String
+) : SlackNotificationEvent(time, application)
+
+data class SlackManualJudgmentUpdateNotification(
+  val channel: String,
+  val timestamp: String,
+  val message: Message,
+  val status: ConstraintStatus,
+  val user: String?,
+  override val application: String,
+  override val time: Instant,
 ) : SlackNotificationEvent(time, application)
 
 data class SlackVerificationCompletedNotification(

@@ -1,5 +1,7 @@
 package com.netflix.spinnaker.keel.slack
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.convertValue
 import com.netflix.spinnaker.keel.api.DeliveryConfig
 import com.netflix.spinnaker.keel.api.NotificationConfig
 import com.netflix.spinnaker.keel.api.NotificationFrequency
@@ -10,7 +12,9 @@ import com.netflix.spinnaker.keel.api.NotificationType
 import com.netflix.spinnaker.keel.api.artifacts.DeliveryArtifact
 import com.netflix.spinnaker.keel.api.artifacts.PublishedArtifact
 import com.netflix.spinnaker.keel.api.constraints.ConstraintStatus
+import com.netflix.spinnaker.keel.api.constraints.ConstraintStatus.PENDING
 import com.netflix.spinnaker.keel.api.events.ConstraintStateChanged
+import com.netflix.spinnaker.keel.constraints.ManualJudgementConstraintAttributes
 import com.netflix.spinnaker.keel.core.api.ManualJudgementConstraint
 import com.netflix.spinnaker.keel.core.api.PromotionStatus
 import com.netflix.spinnaker.keel.events.ApplicationActuationPaused
@@ -34,6 +38,7 @@ import com.netflix.spinnaker.keel.notifications.NotificationType.LIFECYCLE_EVENT
 import com.netflix.spinnaker.keel.notifications.NotificationType.MANUAL_JUDGMENT_APPROVED
 import com.netflix.spinnaker.keel.notifications.NotificationType.MANUAL_JUDGMENT_AWAIT
 import com.netflix.spinnaker.keel.notifications.NotificationType.MANUAL_JUDGMENT_REJECTED
+import com.netflix.spinnaker.keel.notifications.NotificationType.MANUAL_JUDGMENT_UPDATE
 import com.netflix.spinnaker.keel.notifications.NotificationType.TEST_FAILED
 import com.netflix.spinnaker.keel.notifications.NotificationType.TEST_PASSED
 import com.netflix.spinnaker.keel.persistence.KeelRepository
@@ -41,6 +46,7 @@ import com.netflix.spinnaker.keel.slack.handlers.SlackNotificationHandler
 import com.netflix.spinnaker.keel.slack.handlers.supporting
 import com.netflix.spinnaker.keel.telemetry.ArtifactVersionVetoed
 import com.netflix.spinnaker.keel.telemetry.VerificationCompleted
+import com.slack.api.model.Message
 import org.slf4j.LoggerFactory
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
@@ -55,7 +61,8 @@ import com.netflix.spinnaker.keel.notifications.NotificationType as Type
 class NotificationEventListener(
   private val repository: KeelRepository,
   private val clock: Clock,
-  private val handlers: List<SlackNotificationHandler<*>>
+  private val handlers: List<SlackNotificationHandler<*>>,
+  private val mapper: ObjectMapper
 ) {
   private val log by lazy { LoggerFactory.getLogger(javaClass) }
 
@@ -259,12 +266,11 @@ class NotificationEventListener(
     log.debug("Received constraint state changed event: $notification")
     with(notification) {
       // if this is the first time the constraint was evaluated, send a notification
-      // so the user can react via other interfaces outside the UI (e.g. e-mail, Slack)
+      // so the user can react via other interfaces outside the UI (e.g. Slack)
       if (constraint is ManualJudgementConstraint &&
         previousState == null &&
-        currentState.status == ConstraintStatus.PENDING
+        currentState.status == PENDING
       ) {
-
         val (config, artifact) = currentState.artifactReference?.let {
           getConfigAndArtifact(
             deliveryConfigName = currentState.deliveryConfigName,
@@ -300,6 +306,37 @@ class NotificationEventListener(
           ),
           MANUAL_JUDGMENT_AWAIT,
           environment.name)
+      } else if (constraint is ManualJudgementConstraint &&
+                 previousState?.status == PENDING &&
+                 currentState.failed() || currentState.passed()) {
+       // update all slack notifications we sent if the judgement came from the ui or api
+        (currentState.attributes as? ManualJudgementConstraintAttributes)?.let { attrs ->
+          attrs.slackDetails.forEach { slackDetail ->
+            try {
+              val config = repository.getDeliveryConfig(currentState.deliveryConfigName)
+              val message = mapper.convertValue<Message>(slackDetail.message)
+              sendSlackMessage(
+                config,
+                SlackManualJudgmentUpdateNotification(
+                  message = message,
+                  timestamp = slackDetail.timestamp,
+                  channel = slackDetail.channel,
+                  application = config.application,
+                  time = clock.instant(),
+                  status = currentState.status,
+                  user = currentState.judgedBy
+                ),
+                MANUAL_JUDGMENT_UPDATE,
+                environment.name
+              )
+            } catch (e: IllegalArgumentException) {
+              // ignore any failures here, updating the slack message is just a nice bonus
+              log.warn("Unable to convert slack message for constraint ${currentState.uid} to update it: {}", e)
+            }
+          }
+
+        }
+
       }
     }
   }

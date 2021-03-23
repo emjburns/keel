@@ -2,6 +2,7 @@ package com.netflix.spinnaker.keel.services
 
 import com.netflix.spectator.api.BasicTag
 import com.netflix.spectator.api.Registry
+import com.netflix.spinnaker.keel.api.Constraint
 import com.netflix.spinnaker.keel.api.DeliveryConfig
 import com.netflix.spinnaker.keel.api.Environment
 import com.netflix.spinnaker.keel.api.Locatable
@@ -19,6 +20,7 @@ import com.netflix.spinnaker.keel.api.constraints.ConstraintStatus.PASS
 import com.netflix.spinnaker.keel.api.constraints.StatefulConstraintEvaluator
 import com.netflix.spinnaker.keel.api.constraints.StatelessConstraintEvaluator
 import com.netflix.spinnaker.keel.api.constraints.UpdatedConstraintStatus
+import com.netflix.spinnaker.keel.api.events.ConstraintStateChanged
 import com.netflix.spinnaker.keel.api.plugins.ArtifactSupplier
 import com.netflix.spinnaker.keel.api.plugins.ConstraintEvaluator
 import com.netflix.spinnaker.keel.api.plugins.supporting
@@ -137,14 +139,37 @@ class ApplicationService(
       "${config.name}/$environment/${status.type}/${status.artifactVersion}", "constraint not found"
     )
 
-    repository.storeConstraintState(
-      currentState.copy(
-        status = status.status,
-        comment = status.comment ?: currentState.comment,
-        judgedAt = Instant.now(),
-        judgedBy = user
-      )
+    val newState = currentState.copy(
+      status = status.status,
+      comment = status.comment ?: currentState.comment,
+      judgedAt = Instant.now(),
+      judgedBy = user
     )
+    repository.storeConstraintState(newState)
+
+    // publish changed notification so we can update any slack messages sent
+    val constraint = getConstraintForEnvironment(
+      config,
+      environment,
+      status.type
+    )
+    if (currentState.status != newState.status)
+    publisher.publishEvent(
+      ConstraintStateChanged(config.environments.first{ it.name == environment }, constraint, currentState, newState)
+    )
+  }
+
+  fun getConstraintForEnvironment(
+    deliveryConfig: DeliveryConfig,
+    targetEnvironment: String,
+    constraintType: String
+  ): Constraint {
+    val target = deliveryConfig.environments.firstOrNull { it.name == targetEnvironment }
+    requireNotNull(target) {
+      "No environment named $targetEnvironment exists in the configuration ${deliveryConfig.name}"
+    }
+
+    return target.constraints.first { it.type == constraintType }
   }
 
   fun pin(user: String, application: String, pin: EnvironmentArtifactPin) {

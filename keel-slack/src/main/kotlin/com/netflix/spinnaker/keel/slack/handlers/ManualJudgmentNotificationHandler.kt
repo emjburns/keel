@@ -1,11 +1,19 @@
 package com.netflix.spinnaker.keel.slack.handlers
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.convertValue
 import com.netflix.spinnaker.keel.api.ScmInfo
 import com.netflix.spinnaker.keel.api.constraints.ConstraintStatus
 import com.netflix.spinnaker.keel.artifacts.generateCompareLink
+import com.netflix.spinnaker.keel.constraints.ManualJudgementConstraintAttributes
+import com.netflix.spinnaker.keel.constraints.SlackMessageDetail
 import com.netflix.spinnaker.keel.notifications.NotificationType
+import com.netflix.spinnaker.keel.notifications.NotificationType.MANUAL_JUDGMENT_AWAIT
+import com.netflix.spinnaker.keel.notifications.NotificationType.MANUAL_JUDGMENT_UPDATE
+import com.netflix.spinnaker.keel.persistence.KeelRepository
 import com.netflix.spinnaker.keel.slack.SlackManualJudgmentNotification
 import com.netflix.spinnaker.keel.slack.SlackService
+import com.slack.api.methods.response.chat.ChatPostMessageResponse
 import com.slack.api.model.kotlin_extension.block.withBlocks
 import org.apache.logging.log4j.util.Strings
 import org.slf4j.LoggerFactory
@@ -18,10 +26,12 @@ import org.springframework.stereotype.Component
 class ManualJudgmentNotificationHandler(
   private val slackService: SlackService,
   private val gitDataGenerator: GitDataGenerator,
-  private val scmInfo: ScmInfo
+  private val scmInfo: ScmInfo,
+  private val repository: KeelRepository,
+  private val mapper: ObjectMapper
 ) : SlackNotificationHandler<SlackManualJudgmentNotification> {
 
-  override val supportedTypes = listOf(NotificationType.MANUAL_JUDGMENT_AWAIT)
+  override val supportedTypes = listOf(MANUAL_JUDGMENT_AWAIT)
   private val log by lazy { LoggerFactory.getLogger(javaClass) }
   override fun sendMessage(notification: SlackManualJudgmentNotification, channel: String) {
     log.debug("Sending manual judgment await notification for application ${notification.application}")
@@ -104,7 +114,42 @@ class ManualJudgmentNotificationHandler(
           }
         }
       }
-      slackService.sendSlackNotification(channel, blocks, application = application, type = supportedTypes, fallbackText = headerText)
+
+      val response: ChatPostMessageResponse? = slackService
+        .sendSlackNotification(channel, blocks, application = application, type = supportedTypes, fallbackText = headerText)
+
+      if (response?.isOk == true) {
+        // save some of the response if we have a constraint uid
+        // so that we can update the message if clicked from the UI
+        storeMessageDetails(response, notification)
+      }
+    }
+  }
+
+  /**
+   * Stores the message details in the constraint state repository so that they can be used
+   * to update the slack message.
+   */
+  fun storeMessageDetails(response: ChatPostMessageResponse, notification: SlackManualJudgmentNotification) {
+    notification.stateUid?.let { uid ->
+      val currentState = repository.getConstraintStateById(uid)
+      if (currentState != null) {
+
+        val slackDetails = (currentState.attributes as ManualJudgementConstraintAttributes).slackDetails
+        val updatedSlackDetails = slackDetails + SlackMessageDetail(
+          timestamp = response.ts,
+          channel = response.channel,
+          message = mapper.convertValue(response.message) // store as map to keep slack dependency in this module
+        )
+
+        val updatedState = currentState.copy(
+          attributes = ManualJudgementConstraintAttributes(
+            slackDetails = updatedSlackDetails
+          )
+        )
+
+        repository.storeConstraintState(updatedState)
+      }
     }
   }
 }

@@ -31,6 +31,12 @@ class ManualJudgmentCallbackHandler(
   private val slackService: SlackService
 ) {
 
+  companion object {
+    fun updateNotification(originalBlocks: List<LayoutBlock>, user: String?, approved: Boolean) {
+
+    }
+  }
+
   private val log by lazy { LoggerFactory.getLogger(javaClass) }
 
   fun respondToButton(req: BlockActionRequest, ctx: ActionContext) {
@@ -49,7 +55,7 @@ class ManualJudgmentCallbackHandler(
    * Updating the constraint status based on the user response (either approve/reject)
    */
   fun updateConstraintState(slackCallbackResponse: BlockActionPayload) {
-    val constraintUid = slackCallbackResponse.constraintId
+    val constraintUid = slackCallbackResponse.constraintId // slack notification has the constraint uid
     val currentState = repository.getConstraintStateById(parseUID(constraintUid))
       ?: throw SystemException("constraint@callbackId=$constraintUid", "constraint not found")
 
